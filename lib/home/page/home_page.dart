@@ -44,10 +44,21 @@ class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin
         }
       }
 
-      // Obter o diretório base apropriado
-      final Directory baseDir = Platform.isAndroid
-          ? Directory('/storage/emulated/0/Download') // Diretório padrão no Android
-          : await getApplicationDocumentsDirectory(); // Sandbox no iOS
+      Directory baseDir;
+      // Obter o diretório base dependendo da plataforma
+      if (Platform.isAndroid) {
+        // Solicitar permissões de armazenamento no Android
+        if (!(await _requestStoragePermission())) {
+          debugPrint('Permissões de armazenamento negadas.');
+          return;
+        }
+
+        // Tentar obter o diretório externo de escrita
+        baseDir = await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+      } else {
+        // Para iOS, usar o sandbox padrão
+        baseDir = await getApplicationDocumentsDirectory();
+      }
 
       // Verificar se o diretório base existe
       if (!baseDir.existsSync()) {
