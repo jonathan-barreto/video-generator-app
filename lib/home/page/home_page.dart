@@ -6,6 +6,7 @@ import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter/return_code.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class HomePage extends StatefulWidget {
@@ -15,8 +16,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage>
-    with SingleTickerProviderStateMixin {
+class _HomePageState extends State<HomePage> with SingleTickerProviderStateMixin {
   GlobalKey globalKey = GlobalKey();
   late AnimationController _controller;
   int frameCount = 0;
@@ -35,12 +35,40 @@ class _HomePageState extends State<HomePage>
   }
 
   Future<void> _initializeDirectories() async {
-    // Solicitar permissões de armazenamento
-    if (await _requestStoragePermission()) {
-      final Directory downloadsDir = Directory('/storage/emulated/0/Download');
-      framesDirectory = Directory('${downloadsDir.path}/frames');
-      videosDirectory = Directory('${downloadsDir.path}/videos');
+    try {
+      // Solicitar permissões de armazenamento no Android
+      if (Platform.isAndroid) {
+        if (!(await _requestStoragePermission())) {
+          debugPrint('Permissões de armazenamento negadas.');
+          return;
+        }
+      }
 
+      // Obter o diretório base apropriado
+      final Directory baseDir = Platform.isAndroid
+          ? Directory('/storage/emulated/0/Download') // Diretório padrão no Android
+          : await getApplicationDocumentsDirectory(); // Sandbox no iOS
+
+      // Verificar se o diretório base existe
+      if (!baseDir.existsSync()) {
+        debugPrint('Diretório base não encontrado: ${baseDir.path}');
+        if (Platform.isAndroid) {
+          // Usar um fallback para Android
+          final Directory fallbackDir =
+              await getExternalStorageDirectory() ?? await getApplicationDocumentsDirectory();
+          debugPrint('Usando fallback para diretório: ${fallbackDir.path}');
+          framesDirectory = Directory('${fallbackDir.path}/frames');
+          videosDirectory = Directory('${fallbackDir.path}/videos');
+        } else {
+          throw Exception('Não foi possível acessar o diretório base.');
+        }
+      } else {
+        // Criar subdiretórios
+        framesDirectory = Directory('${baseDir.path}/frames');
+        videosDirectory = Directory('${baseDir.path}/videos');
+      }
+
+      // Criar os diretórios se não existirem
       if (!framesDirectory.existsSync()) {
         framesDirectory.createSync(recursive: true);
       }
@@ -50,14 +78,17 @@ class _HomePageState extends State<HomePage>
 
       debugPrint('Diretório para frames: ${framesDirectory.path}');
       debugPrint('Diretório para vídeos: ${videosDirectory.path}');
-    } else {
-      debugPrint('Permissões de armazenamento negadas.');
+    } catch (e) {
+      debugPrint('Erro ao inicializar diretórios: $e');
     }
   }
 
   Future<bool> _requestStoragePermission() async {
-    final status = await Permission.storage.request();
-    return status.isGranted;
+    if (Platform.isAndroid) {
+      final PermissionStatus status = await Permission.storage.request();
+      return status.isGranted;
+    }
+    return true; // No iOS, permissões de armazenamento não são necessárias
   }
 
   Future<void> _startCapture() async {
@@ -84,8 +115,8 @@ class _HomePageState extends State<HomePage>
 
   Future<void> _captureFrame() async {
     try {
-      final RenderRepaintBoundary boundary = globalKey.currentContext!
-          .findRenderObject()! as RenderRepaintBoundary;
+      final RenderRepaintBoundary boundary =
+          globalKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
 
       if (boundary.debugNeedsPaint) {
         await Future.delayed(const Duration(milliseconds: 100));
